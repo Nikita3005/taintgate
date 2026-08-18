@@ -14,20 +14,20 @@ _SECRET_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
 )
 
 _INJECTION_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"ignore\s+(?:all\s+)?previous\s+instructions", re.I),
-    re.compile(r"reveal\s+(?:the\s+)?(?:system|developer)\s+prompt", re.I),
-    re.compile(r"send\s+.*(?:secret|credential|api[_ -]?key)", re.I),
+    re.compile(r"ignore\s+(?:all\s+)?previous\s+instructions", re.IGNORECASE),
+    re.compile(r"reveal\s+(?:the\s+)?(?:system|developer)\s+prompt", re.IGNORECASE),
+    re.compile(r"send\s+.*(?:secret|credential|api[_ -]?key)", re.IGNORECASE),
 )
 
 _DESTRUCTIVE_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"(?:^|\s)rm\s+-rf\s+(?:/|~|\*)", re.I),
-    re.compile(r"\b(?:drop|truncate)\s+(?:table|database)\b", re.I),
-    re.compile(r"\bshutdown\b|\breboot\b", re.I),
+    re.compile(r"(?:^|\s)rm\s+-rf\s+(?:/|~|\*)", re.IGNORECASE),
+    re.compile(r"\b(?:drop|truncate)\s+(?:table|database)\b", re.IGNORECASE),
+    re.compile(r"\bshutdown\b|\breboot\b", re.IGNORECASE),
 )
 
 _SENSITIVE_PATH_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"(?:^|/)(?:\.ssh|\.aws|\.gnupg)(?:/|$)", re.I),
-    re.compile(r"(?:^|/)(?:\.env|id_rsa|id_ed25519)$", re.I),
+    re.compile(r"(?:^|/)(?:\.ssh|\.aws|\.gnupg)(?:/|$)", re.IGNORECASE),
+    re.compile(r"(?:^|/)(?:\.env|id_rsa|id_ed25519)$", re.IGNORECASE),
 )
 
 

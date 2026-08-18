@@ -1,6 +1,5 @@
 from taintgate import ApprovalRequired, BlockedAction, Guard, untrusted
 
-
 guard = Guard()
 
 
