@@ -61,6 +61,28 @@ class TaintedValue:
 
 
 @dataclass(frozen=True)
+class ToolMetadata:
+    side_effecting: bool = False
+    external_destination: bool = False
+    destructive: bool = False
+
+    def __post_init__(self) -> None:
+        for name in ("side_effecting", "external_destination", "destructive"):
+            value = getattr(self, name)
+            if not isinstance(value, bool):
+                raise TypeError(f"{name} must be a bool")
+
+    def merge(self, other: ToolMetadata | None) -> ToolMetadata:
+        if other is None:
+            return self
+        return ToolMetadata(
+            side_effecting=self.side_effecting or other.side_effecting,
+            external_destination=self.external_destination or other.external_destination,
+            destructive=self.destructive or other.destructive,
+        )
+
+
+@dataclass(frozen=True)
 class Finding:
     rule_id: str
     message: str
@@ -73,10 +95,19 @@ class Decision:
     score: int
     tool: str
     findings: tuple[Finding, ...] = field(default_factory=tuple)
+    matched_policies: tuple[str, ...] = field(default_factory=tuple)
 
     @property
     def allowed(self) -> bool:
         return self.action == Action.ALLOW
+
+    @property
+    def risk_score(self) -> int:
+        return self.score
+
+    @property
+    def reasons(self) -> tuple[Finding, ...]:
+        return self.findings
 
 
 @dataclass(frozen=True)

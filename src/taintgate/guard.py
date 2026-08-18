@@ -15,7 +15,16 @@ from .detectors import (
     detect_untrusted_flow,
 )
 from .exceptions import ApprovalRequired, BlockedAction
-from .models import Action, CallContext, Decision, Finding, TaintedString, TaintedValue, Trust
+from .models import (
+    Action,
+    CallContext,
+    Decision,
+    Finding,
+    TaintedString,
+    TaintedValue,
+    ToolMetadata,
+    Trust,
+)
 from .policy import Policy
 
 P = ParamSpec("P")
@@ -41,14 +50,10 @@ class Guard:
         args: dict[str, Any],
         *,
         context: CallContext | None = None,
+        metadata: ToolMetadata | None = None,
     ) -> Decision:
         del context  # reserved for intent-aware policies in the next milestone
         findings: list[Finding] = []
-
-        if tool in self.policy.denied_tools:
-            findings.append(Finding("policy.denied_tool", f"Tool {tool!r} is denied by policy", 100))
-        if tool in self.policy.review_tools:
-            findings.append(Finding("policy.review_tool", f"Tool {tool!r} requires review", 65))
 
         findings.extend(detect_secrets(args))
         findings.extend(detect_prompt_injection(args))
@@ -56,15 +61,7 @@ class Guard:
         findings.extend(detect_sensitive_paths(args))
         findings.extend(detect_untrusted_flow(tool, args))
 
-        score = self._combine(findings)
-        if score >= self.policy.block_at:
-            action = Action.BLOCK
-        elif score >= self.policy.review_at:
-            action = Action.REVIEW
-        else:
-            action = Action.ALLOW
-
-        decision = Decision(action=action, score=score, tool=tool, findings=tuple(findings))
+        decision = self.policy.evaluate(tool, args=args, findings=tuple(findings), metadata=metadata)
         if self.audit:
             self.audit.write(decision)
         return decision
@@ -75,8 +72,9 @@ class Guard:
         args: dict[str, Any],
         *,
         context: CallContext | None = None,
+        metadata: ToolMetadata | None = None,
     ) -> Decision:
-        decision = self.check(tool, args, context=context)
+        decision = self.check(tool, args, context=context, metadata=metadata)
         if decision.action == Action.BLOCK:
             raise BlockedAction(decision)
         if decision.action == Action.REVIEW:
@@ -86,7 +84,12 @@ class Guard:
                 raise BlockedAction(decision)
         return decision
 
-    def protect(self, *, name: str | None = None) -> Callable[[Callable[P, R]], Callable[P, R]]:
+    def protect(
+        self,
+        *,
+        name: str | None = None,
+        metadata: ToolMetadata | None = None,
+    ) -> Callable[[Callable[P, R]], Callable[P, R]]:
         def decorator(func: Callable[P, R]) -> Callable[P, R]:
             signature = inspect.signature(func)
             tool_name = name or func.__name__
@@ -96,7 +99,7 @@ class Guard:
                 bound = signature.bind(*args, **kwargs)
                 bound.apply_defaults()
                 raw = dict(bound.arguments)
-                self.authorize(tool_name, raw)
+                self.authorize(tool_name, raw, metadata=metadata)
                 for key, value in list(bound.arguments.items()):
                     bound.arguments[key] = _unwrap(value)
                 return func(*bound.args, **bound.kwargs)
@@ -147,16 +150,6 @@ class Guard:
             return cast(Callable[P, R], wrapped)
 
         return decorator
-
-    @staticmethod
-    def _combine(findings: list[Finding]) -> int:
-        if not findings:
-            return 0
-        # Multiple independent warning signals should compound without simply summing to 100.
-        remaining = 1.0
-        for finding in findings:
-            remaining *= 1.0 - (finding.score / 100.0)
-        return min(100, round((1.0 - remaining) * 100))
 
 
 def _unwrap(value: Any) -> Any:

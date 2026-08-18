@@ -1,7 +1,16 @@
-from .exceptions import ApprovalRequired, BlockedAction, TaintGateError
+from .exceptions import ApprovalRequired, BlockedAction, PolicyConfigurationError, TaintGateError
 from .guard import Guard
-from .models import Action, CallContext, Decision, Finding, TaintedString, TaintedValue, Trust
-from .policy import Policy
+from .models import (
+    Action,
+    CallContext,
+    Decision,
+    Finding,
+    TaintedString,
+    TaintedValue,
+    ToolMetadata,
+    Trust,
+)
+from .policy import Policy, ToolPolicy
 
 
 def untrusted(value, *, origin: str = "unknown") -> TaintedValue:
@@ -25,9 +34,12 @@ __all__ = [
     "Finding",
     "Guard",
     "Policy",
+    "PolicyConfigurationError",
     "TaintGateError",
     "TaintedString",
     "TaintedValue",
+    "ToolMetadata",
+    "ToolPolicy",
     "Trust",
     "trusted",
     "untrusted",

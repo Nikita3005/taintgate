@@ -53,6 +53,36 @@ send_email(
 )
 ```
 
+Load an explicit policy file:
+
+```python
+from taintgate import Guard, Policy
+
+guard = Guard(policy=Policy.from_toml("taintgate.toml"))
+```
+
+Example `taintgate.toml`:
+
+```toml
+version = 1
+default = "allow"
+
+[tools.send_email]
+default = "review"
+side_effecting = true
+external_destination = true
+on_untrusted_external = "block"
+
+[tools.execute_shell]
+default = "review"
+side_effecting = true
+on_destructive = "block"
+```
+
+Policy files are validated strictly. Unknown keys, wrong field types, missing
+required keys, malformed TOML, and unsupported versions fail closed with a
+configuration error instead of silently falling back to allow-all behavior.
+
 ## v0.1 scope
 
 - Framework-agnostic Python decorator for tool interception
