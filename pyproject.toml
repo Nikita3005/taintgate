@@ -26,6 +26,7 @@ dependencies = ['tomli>=2.0; python_version < "3.11"']
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "ruff>=0.6"]
+openai = ["openai-agents>=0.21.1"]
 
 [project.scripts]
 taintgate = "taintgate.cli:main"
