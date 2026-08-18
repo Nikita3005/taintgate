@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import functools
 import inspect
+from collections import abc
 from collections.abc import Callable
-from typing import Any, ParamSpec, TypeVar
+from typing import Any, ParamSpec, TypeVar, cast
 
 from .audit import JsonlAuditLog
 from .detectors import (
@@ -14,7 +15,7 @@ from .detectors import (
     detect_untrusted_flow,
 )
 from .exceptions import ApprovalRequired, BlockedAction
-from .models import Action, CallContext, Decision, Finding, TaintedValue
+from .models import Action, CallContext, Decision, Finding, TaintedString, TaintedValue, Trust
 from .policy import Policy
 
 P = ParamSpec("P")
@@ -104,6 +105,49 @@ class Guard:
 
         return decorator
 
+    def untrusted_source(
+        self,
+        source_type: str,
+        *,
+        origin_arg: str | None = None,
+    ) -> Callable[[Callable[P, R]], Callable[P, R]]:
+        def decorator(func: Callable[P, R]) -> Callable[P, R]:
+            signature = inspect.signature(func)
+            if origin_arg is not None and origin_arg not in signature.parameters:
+                raise ValueError(
+                    f"origin_arg {origin_arg!r} is not a parameter of {func.__name__!r}"
+                )
+
+            if inspect.iscoroutinefunction(func):
+
+                @functools.wraps(func)
+                async def async_wrapped(*args: P.args, **kwargs: P.kwargs) -> TaintedString:
+                    result = await cast(Callable[P, abc.Awaitable[Any]], func)(*args, **kwargs)
+                    origin = _resolve_origin(signature, origin_arg, args, kwargs)
+                    return _taint_source_result(
+                        result,
+                        source_type=source_type,
+                        origin=origin,
+                        function_name=func.__name__,
+                    )
+
+                return cast(Callable[P, R], async_wrapped)
+
+            @functools.wraps(func)
+            def wrapped(*args: P.args, **kwargs: P.kwargs) -> TaintedString:
+                result = func(*args, **kwargs)
+                origin = _resolve_origin(signature, origin_arg, args, kwargs)
+                return _taint_source_result(
+                    result,
+                    source_type=source_type,
+                    origin=origin,
+                    function_name=func.__name__,
+                )
+
+            return cast(Callable[P, R], wrapped)
+
+        return decorator
+
     @staticmethod
     def _combine(findings: list[Finding]) -> int:
         if not findings:
@@ -116,6 +160,8 @@ class Guard:
 
 
 def _unwrap(value: Any) -> Any:
+    if isinstance(value, TaintedString):
+        return _plain_str(value)
     if isinstance(value, TaintedValue):
         return _unwrap(value.value)
     if isinstance(value, dict):
@@ -125,3 +171,43 @@ def _unwrap(value: Any) -> Any:
     if isinstance(value, tuple):
         return tuple(_unwrap(item) for item in value)
     return value
+
+
+def _resolve_origin(
+    signature: inspect.Signature,
+    origin_arg: str | None,
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+) -> str:
+    if origin_arg is None:
+        return "unknown"
+    bound = signature.bind(*args, **kwargs)
+    bound.apply_defaults()
+    origin = _unwrap(bound.arguments[origin_arg])
+    if origin is None:
+        return "unknown"
+    return str(origin)
+
+
+def _taint_source_result(
+    result: Any,
+    *,
+    source_type: str,
+    origin: str,
+    function_name: str,
+) -> TaintedString:
+    if not isinstance(result, str):
+        raise TypeError(
+            f"@guard.untrusted_source only supports str results; "
+            f"{function_name!r} returned {type(result).__name__}"
+        )
+    return TaintedString(
+        _plain_str(result),
+        trust=Trust.UNTRUSTED,
+        origin=origin,
+        source_type=source_type,
+    )
+
+
+def _plain_str(value: str) -> str:
+    return f"{value}"

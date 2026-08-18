@@ -1,6 +1,6 @@
 from .exceptions import ApprovalRequired, BlockedAction, TaintGateError
 from .guard import Guard
-from .models import Action, CallContext, Decision, Finding, TaintedValue, Trust
+from .models import Action, CallContext, Decision, Finding, TaintedString, TaintedValue, Trust
 from .policy import Policy
 
 
@@ -26,6 +26,7 @@ __all__ = [
     "Guard",
     "Policy",
     "TaintGateError",
+    "TaintedString",
     "TaintedValue",
     "Trust",
     "trusted",

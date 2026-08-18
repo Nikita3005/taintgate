@@ -68,6 +68,14 @@ send_email(
 - CLI demo and direct `check` command
 - Zero runtime dependencies
 
+## Current limitation
+
+Automatic provenance propagation currently attaches to direct string results only.
+If that value is later transformed through formatting, concatenation, JSON
+round-trips, or similar string-producing operations, the derived value may lose
+its provenance unless the application re-tags it before passing it to a
+protected sink.
+
 ## CLI
 
 ```bash
