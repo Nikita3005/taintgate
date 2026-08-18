@@ -40,6 +40,12 @@ not require API keys, network access, or external AI services.
 taintgate demo
 ```
 
+Optional OpenAI Agents SDK integration:
+
+```bash
+pip install "taintgate[openai]"
+```
+
 Protect a normal Python tool:
 
 ```python
@@ -106,6 +112,7 @@ configuration error instead of silently falling back to allow-all behavior.
 - Untrusted-data and sensitive-content external flow detection
 - Human approval callback
 - Optional JSONL audit log
+- Optional OpenAI Agents SDK custom function-tool input guardrail adapter
 - Local attack simulator, CLI demo, and direct `check` command
 - Zero runtime dependencies except `tomli` on Python 3.10
 
@@ -146,13 +153,54 @@ x BLOCK  risk=90/100  tool=execute_shell
   - [action.shell.destructive] Destructive shell command detected at $.command (+90)
 ```
 
+## OpenAI Agents SDK
+
+TaintGate v0.1 supports OpenAI Agents SDK custom function-tool input guardrails.
+It does not yet claim complete coverage for every hosted tool, MCP surface, or
+other OpenAI Agents runtime path.
+
+Install the optional integration with:
+
+```bash
+pip install "taintgate[openai]"
+```
+
+Attach TaintGate to a custom function tool using the SDK's official
+tool-input guardrail API:
+
+```python
+from agents import function_tool
+
+from taintgate import Guard, ToolMetadata
+from taintgate.openai_agents import TaintGateToolGuardrail
+
+guard = Guard()
+tg = TaintGateToolGuardrail(
+    guard,
+    metadata={
+        "send_email": ToolMetadata(
+            side_effecting=True,
+            external_destination=True,
+        )
+    },
+)
+
+@function_tool(tool_input_guardrails=[tg.for_tool("send_email")])
+def send_email(to: str, body: str) -> str:
+    return "sent"
+```
+
+For tools protected this way, use TaintGate approval on the `Guard`. Do not
+combine this adapter with the SDK's native `needs_approval` mechanism for the
+same tool.
+
 ## What comes next
 
 1. Intent/action consistency checks: compare the user's authorized goal with
    the proposed side effect.
 2. Output-side scanning: taint values returned by browser, search, retrieval,
    and MCP tools automatically.
-3. OpenAI Agents SDK adapter.
+3. Broader OpenAI Agents SDK runtime coverage.
 4. LangChain/LangGraph middleware adapter.
 5. MCP proxy/adapter.
 6. Expanded attack-suite scenarios and adapters.
