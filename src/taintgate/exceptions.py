@@ -7,6 +7,10 @@ class TaintGateError(RuntimeError):
     pass
 
 
+class PolicyConfigurationError(TaintGateError):
+    pass
+
+
 class BlockedAction(TaintGateError):
     def __init__(self, decision: Decision):
         self.decision = decision
