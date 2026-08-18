@@ -32,6 +32,15 @@ _ACTION_SEVERITY = {
     Action.REVIEW: 1,
     Action.BLOCK: 2,
 }
+_DESTRUCTIVE_RULE_IDS = frozenset(
+    {
+        "action.destructive",
+        "action.shell.destructive",
+        "action.sql.destructive",
+    }
+)
+_INFER_EXTERNAL_WORDS = ("send", "email", "post", "upload", "request", "http")
+_INFER_SIDE_EFFECT_WORDS = _INFER_EXTERNAL_WORDS + ("write", "execute", "shell")
 
 
 @dataclass(frozen=True)
@@ -152,7 +161,7 @@ class Policy:
             raise PolicyConfigurationError("metadata must be a ToolMetadata instance")
 
         tool_policy = self.tools.get(tool)
-        effective_metadata = self._effective_metadata(tool_policy, metadata)
+        effective_metadata = self.resolve_metadata(tool, metadata)
         observed = _observed_state(args, findings, effective_metadata)
 
         reasons = list(findings)
@@ -176,13 +185,13 @@ class Policy:
             matched_policies=tuple(_dedupe(matched_policies)),
         )
 
-    def _effective_metadata(
-        self,
-        tool_policy: ToolPolicy | None,
-        runtime_metadata: ToolMetadata | None,
-    ) -> ToolMetadata:
+    def resolve_metadata(self, tool: str, runtime_metadata: ToolMetadata | None = None) -> ToolMetadata:
+        tool_policy = self.tools.get(tool)
         configured = tool_policy.metadata if tool_policy is not None else ToolMetadata()
-        return configured.merge(runtime_metadata)
+        effective = configured.merge(runtime_metadata)
+        if any((effective.side_effecting, effective.external_destination, effective.destructive)):
+            return effective
+        return effective.merge(_infer_metadata_from_tool_name(tool))
 
     def _add_default_policy(
         self,
@@ -372,7 +381,7 @@ def _observed_state(
     metadata: ToolMetadata,
 ) -> _ObservedState:
     has_untrusted_input = any(trust == Trust.UNTRUSTED for _path, _value, trust, _origin, _source in walk(args))
-    destructive = metadata.destructive or any(finding.rule_id == "action.destructive" for finding in findings)
+    destructive = metadata.destructive or any(finding.rule_id in _DESTRUCTIVE_RULE_IDS for finding in findings)
     return _ObservedState(
         has_untrusted_input=has_untrusted_input,
         destructive=destructive,
@@ -485,3 +494,10 @@ def _dedupe(values: Sequence[str]) -> list[str]:
         seen.add(value)
         ordered.append(value)
     return ordered
+
+
+def _infer_metadata_from_tool_name(tool: str) -> ToolMetadata:
+    tool_l = tool.lower()
+    external_destination = any(word in tool_l for word in _INFER_EXTERNAL_WORDS)
+    side_effecting = external_destination or any(word in tool_l for word in _INFER_SIDE_EFFECT_WORDS)
+    return ToolMetadata(side_effecting=side_effecting, external_destination=external_destination)

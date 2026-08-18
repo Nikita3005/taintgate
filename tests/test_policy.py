@@ -307,7 +307,10 @@ def test_destructive_finding_can_force_block() -> None:
 
     assert decision.action == Action.BLOCK
     assert "tools.run_query.on_destructive" in decision.matched_policies
-    assert any(finding.rule_id == "action.destructive" for finding in decision.findings)
+    assert any(
+        finding.rule_id in {"action.destructive", "action.shell.destructive", "action.sql.destructive"}
+        for finding in decision.findings
+    )
 
 
 def test_structured_matched_policy_ids_are_stable() -> None:

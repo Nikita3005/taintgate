@@ -7,19 +7,12 @@ from collections.abc import Callable
 from typing import Any, ParamSpec, TypeVar, cast
 
 from .audit import JsonlAuditLog
-from .detectors import (
-    detect_destructive,
-    detect_prompt_injection,
-    detect_secrets,
-    detect_sensitive_paths,
-    detect_untrusted_flow,
-)
+from .detectors import collect_findings
 from .exceptions import ApprovalRequired, BlockedAction
 from .models import (
     Action,
     CallContext,
     Decision,
-    Finding,
     TaintedString,
     TaintedValue,
     ToolMetadata,
@@ -53,15 +46,10 @@ class Guard:
         metadata: ToolMetadata | None = None,
     ) -> Decision:
         del context  # reserved for intent-aware policies in the next milestone
-        findings: list[Finding] = []
+        effective_metadata = self.policy.resolve_metadata(tool, metadata)
+        findings = collect_findings(tool, args, effective_metadata)
 
-        findings.extend(detect_secrets(args))
-        findings.extend(detect_prompt_injection(args))
-        findings.extend(detect_destructive(args))
-        findings.extend(detect_sensitive_paths(args))
-        findings.extend(detect_untrusted_flow(tool, args))
-
-        decision = self.policy.evaluate(tool, args=args, findings=tuple(findings), metadata=metadata)
+        decision = self.policy.evaluate(tool, args=args, findings=tuple(findings), metadata=effective_metadata)
         if self.audit:
             self.audit.write(decision)
         return decision
