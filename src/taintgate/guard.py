@@ -116,6 +116,17 @@ class Guard:
         action_context = self._authorize_sync(tool, args, context=context, metadata=metadata)
         return action_context.decision
 
+    async def authorize_async(
+        self,
+        tool: str,
+        args: dict[str, Any],
+        *,
+        context: CallContext | None = None,
+        metadata: ToolMetadata | None = None,
+    ) -> Decision:
+        action_context = await self._authorize_async(tool, args, context=context, metadata=metadata)
+        return action_context.decision
+
     def protect(
         self,
         *,

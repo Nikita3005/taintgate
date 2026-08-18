@@ -46,6 +46,12 @@ Optional OpenAI Agents SDK integration:
 pip install "taintgate[openai]"
 ```
 
+Optional LangChain/LangGraph integration:
+
+```bash
+pip install "taintgate[langgraph]"
+```
+
 Protect a normal Python tool:
 
 ```python
@@ -194,6 +200,56 @@ For tools protected this way, use TaintGate approval on the `Guard`. Do not
 combine this adapter with the SDK's native `needs_approval` mechanism for the
 same tool.
 
+## LangChain / LangGraph
+
+TaintGate v0.1 supports current public LangChain/LangGraph tool interception
+through `AgentMiddleware.wrap_tool_call` / `awrap_tool_call` and a small
+direct `ToolNode` helper.
+
+Install the optional integration with:
+
+```bash
+pip install "taintgate[langgraph]"
+```
+
+Attach TaintGate to LangChain agents using middleware:
+
+```python
+from langchain.agents import create_agent
+
+from taintgate import Guard, ToolMetadata
+from taintgate.langchain import TaintGateToolMiddleware
+
+guard = Guard()
+middleware = TaintGateToolMiddleware(
+    guard,
+    metadata={
+        "send_email": ToolMetadata(
+            side_effecting=True,
+            external_destination=True,
+        )
+    },
+)
+
+agent = create_agent(
+    model,
+    tools=[send_email],
+    middleware=[middleware],
+)
+```
+
+For direct LangGraph tool execution, the helper keeps `handle_tool_errors=False`
+so TaintGate security exceptions propagate instead of being converted into
+ordinary tool errors:
+
+```python
+tool_node = middleware.tool_node([send_email])
+```
+
+This adapter protects tool execution only. It does not yet claim full
+LangGraph state/message provenance propagation, and serialization or derived
+strings may still lose provenance in v0.1.
+
 ## What comes next
 
 1. Intent/action consistency checks: compare the user's authorized goal with
@@ -201,7 +257,7 @@ same tool.
 2. Output-side scanning: taint values returned by browser, search, retrieval,
    and MCP tools automatically.
 3. Broader OpenAI Agents SDK runtime coverage.
-4. LangChain/LangGraph middleware adapter.
+4. Broader LangChain/LangGraph runtime coverage and provenance propagation.
 5. MCP proxy/adapter.
 6. Expanded attack-suite scenarios and adapters.
 7. Additional policy controls and integrations.
