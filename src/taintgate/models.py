@@ -16,6 +16,22 @@ class Action(str, Enum):
     BLOCK = "block"
 
 
+class ApprovalAction(str, Enum):
+    APPROVE = "approve"
+    REJECT = "reject"
+
+
+class ExecutionState(str, Enum):
+    ALLOWED = "allowed"
+    BLOCKED = "blocked"
+    APPROVAL_REQUESTED = "approval_requested"
+    APPROVAL_GRANTED = "approval_granted"
+    APPROVAL_REJECTED = "approval_rejected"
+    APPROVAL_FAILED = "approval_failed"
+    EXECUTED = "executed"
+    EXECUTION_FAILED = "execution_failed"
+
+
 class Trust(str, Enum):
     USER = "user"
     TRUSTED = "trusted"
@@ -116,3 +132,84 @@ class CallContext:
     user_intent: str | None = None
     actor: str | None = None
     session_id: str | None = None
+
+
+@dataclass(frozen=True)
+class ArgumentSummary:
+    path: str
+    python_type: str
+    string_length: int | None = None
+    collection_size: int | None = None
+    trust: Trust | None = None
+    source_type: str | None = None
+    origin: str | None = None
+    truncated: bool = False
+
+
+@dataclass(frozen=True)
+class ProvenanceSummary:
+    path: str
+    trust: Trust
+    source_type: str | None = None
+    origin: str | None = None
+
+
+@dataclass(frozen=True)
+class ApprovalResult:
+    action: ApprovalAction
+    reason: str | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.action, ApprovalAction):
+            raise TypeError("action must be an ApprovalAction")
+        if self.reason is not None and not isinstance(self.reason, str):
+            raise TypeError("reason must be a string or None")
+
+
+@dataclass(frozen=True)
+class ApprovalRequest:
+    event_id: str
+    tool: str
+    decision: Decision
+    argument_summary: tuple[ArgumentSummary, ...] = field(default_factory=tuple)
+    provenance: tuple[ProvenanceSummary, ...] = field(default_factory=tuple)
+    metadata: ToolMetadata = field(default_factory=ToolMetadata)
+    context: CallContext | None = None
+
+    @property
+    def action(self) -> Action:
+        return self.decision.action
+
+    @property
+    def score(self) -> int:
+        return self.decision.score
+
+    @property
+    def risk_score(self) -> int:
+        return self.decision.risk_score
+
+    @property
+    def findings(self) -> tuple[Finding, ...]:
+        return self.decision.findings
+
+    @property
+    def matched_policies(self) -> tuple[str, ...]:
+        return self.decision.matched_policies
+
+
+@dataclass(frozen=True)
+class AuditEvent:
+    timestamp: str
+    event_id: str
+    tool: str
+    policy_action: Action
+    risk_score: int
+    execution_state: ExecutionState
+    matched_policies: tuple[str, ...] = field(default_factory=tuple)
+    finding_ids: tuple[str, ...] = field(default_factory=tuple)
+    provenance: tuple[ProvenanceSummary, ...] = field(default_factory=tuple)
+    argument_summary: tuple[ArgumentSummary, ...] = field(default_factory=tuple)
+    tool_metadata: ToolMetadata = field(default_factory=ToolMetadata)
+    approval_action: ApprovalAction | None = None
+    error_type: str | None = None
+    schema_version: int = 1
