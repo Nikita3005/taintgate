@@ -23,9 +23,11 @@ TaintGate distinguishes three provenance classes:
 
 - Indirect prompt injection in retrieved/web content
 - Secret leakage into side-effecting tools
+- High-confidence PII leakage into external destinations
 - Destructive shell and SQL actions
 - Reads of sensitive paths
 - Untrusted data flowing into network/write/execute sinks
+- Sensitive content flowing into side-effecting external tools
 - Policy-denied tools
 
 ## Non-goals for v0.1
@@ -33,9 +35,16 @@ TaintGate distinguishes three provenance classes:
 - OS/container sandboxing
 - Network-level isolation
 - Perfect semantic prompt-injection detection
+- Comprehensive PII classification
 - Authentication or identity management
 - Replacing least-privilege credentials
 - Guaranteeing safety against a malicious host application that bypasses the guard
+
+## Detector notes
+
+- Prompt-injection detection is heuristic and deterministic, not semantic proof.
+- Secret and PII findings must not expose raw matched values in messages.
+- Bounded scans may return `runtime.scan_limit` when traversal stops early.
 
 ## Security invariant
 

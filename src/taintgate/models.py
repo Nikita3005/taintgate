@@ -87,6 +87,7 @@ class Finding:
     rule_id: str
     message: str
     score: int
+    path: str | None = None
 
 
 @dataclass(frozen=True)

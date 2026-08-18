@@ -1,30 +1,33 @@
-# TaintGate 🛡️
+# TaintGate
 
-> **Working name.** A provenance-aware runtime firewall for AI agent tool calls.
+> Working name. A provenance-aware runtime firewall for AI agent tool calls.
 
-TaintGate sits between an AI agent and its tools. Unlike a plain tool allow/block list, it can track **where tool arguments came from** — user input, trusted application state, or untrusted web/tool output — and use that provenance in the security decision.
+TaintGate sits between an AI agent and its tools. Unlike a plain tool allow/block
+list, it can track where tool arguments came from - user input, trusted
+application state, or untrusted web/tool output - and use that provenance in
+the security decision.
 
 ```text
-untrusted web page ──┐
-                     ▼
-AI agent ───────► TaintGate ───────► tool/API
-                     │
-                     ├─ secret detection
-                     ├─ destructive-action detection
-                     ├─ prompt-injection signals
-                     ├─ untrusted-data → side-effect flow
-                     └─ allow / review / block
+untrusted web page --> AI agent --> TaintGate --> tool/API
+                               |-> secret and PII detection
+                               |-> destructive action detection
+                               |-> prompt-injection heuristics
+                               |-> provenance-aware flow detection
+                               `-> allow / review / block
 ```
 
 ## Why this project exists
 
-Modern agent frameworks already expose hooks for guardrails, middleware, approvals, and tool interception. The interesting missing layer is a small **framework-agnostic enforcement core** that treats provenance as a first-class security signal.
+Modern agent frameworks already expose hooks for guardrails, middleware,
+approvals, and tool interception. The interesting missing layer is a small
+framework-agnostic enforcement core that treats provenance as a first-class
+security signal.
 
 ## Quickstart
 
 ```bash
 python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\\Scripts\\activate
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
 taintgate demo
 ```
@@ -40,10 +43,8 @@ shield = Guard()
 def send_email(to: str, body: str):
     return "sent"
 
-# Trusted/normal data: allowed.
 send_email("team@example.com", "Build completed")
 
-# Untrusted web content flowing into a side-effecting tool: scored and gated.
 send_email(
     "outside@example.net",
     untrusted(
@@ -88,23 +89,33 @@ configuration error instead of silently falling back to allow-all behavior.
 - Framework-agnostic Python decorator for tool interception
 - `allow` / `review` / `block` decisions
 - Provenance tags: `user`, `trusted`, `untrusted`
-- Prompt-injection signals on untrusted input
-- Secret-like value detection
-- Destructive shell/SQL signals
-- Sensitive-path detection
-- Untrusted-data → side-effect flow detection
+- Automatic provenance propagation for direct string results
+- Secret and high-confidence PII detection
+- Heuristic prompt-injection signals
+- Destructive shell and SQL detection
+- Sensitive filesystem path detection
+- Untrusted-data to side-effect flow detection
+- Untrusted-data and sensitive-content external flow detection
 - Human approval callback
 - Optional JSONL audit log
 - CLI demo and direct `check` command
-- Zero runtime dependencies
+- Zero runtime dependencies except `tomli` on Python 3.10
 
-## Current limitation
+## Current limitations
 
-Automatic provenance propagation currently attaches to direct string results only.
-If that value is later transformed through formatting, concatenation, JSON
-round-trips, or similar string-producing operations, the derived value may lose
-its provenance unless the application re-tags it before passing it to a
+Automatic provenance propagation currently attaches to direct string results
+only. If that value is later transformed through formatting, concatenation,
+JSON round-trips, or similar string-producing operations, the derived value may
+lose its provenance unless the application re-tags it before passing it to a
 protected sink.
+
+Prompt-injection detection is heuristic and deterministic. It is useful for
+runtime demos and defense-in-depth, but it is not a semantic guarantee that a
+string is safe or unsafe.
+
+Security scans are resource bounded. Extremely deep or adversarial nested
+inputs may produce a `runtime.scan_limit` finding to signal that traversal
+stopped before the entire structure was scanned.
 
 ## CLI
 
@@ -119,14 +130,16 @@ taintgate check \
 Example output:
 
 ```text
-✗ BLOCK  risk=90/100  tool=execute_shell
-  - [action.destructive] Destructive operation at $.command (+90)
+x BLOCK  risk=90/100  tool=execute_shell
+  - [action.shell.destructive] Destructive shell command detected at $.command (+90)
 ```
 
 ## What comes next
 
-1. Intent/action consistency checks: compare the user's authorized goal with the proposed side effect.
-2. Output-side scanning: taint values returned by browser, search, retrieval, and MCP tools automatically.
+1. Intent/action consistency checks: compare the user's authorized goal with
+   the proposed side effect.
+2. Output-side scanning: taint values returned by browser, search, retrieval,
+   and MCP tools automatically.
 3. OpenAI Agents SDK adapter.
 4. LangChain/LangGraph middleware adapter.
 5. MCP proxy/adapter.
@@ -135,9 +148,10 @@ Example output:
 
 ## Design principle
 
-**Untrusted text is data, not authority.**
+Untrusted text is data, not authority.
 
-A webpage can tell an agent what to do, but it should not silently gain the authority to send email, execute code, or disclose secrets.
+A webpage can tell an agent what to do, but it should not silently gain the
+authority to send email, execute code, or disclose secrets.
 
 ## Development
 
