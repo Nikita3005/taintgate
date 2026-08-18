@@ -29,6 +29,14 @@ security signal.
 python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
+taintgate attack
+```
+
+`taintgate attack` is the primary local demo. It runs a deterministic attack
+simulation entirely with fake local tools and synthetic payloads, so it does
+not require API keys, network access, or external AI services.
+
+```bash
 taintgate demo
 ```
 
@@ -98,7 +106,7 @@ configuration error instead of silently falling back to allow-all behavior.
 - Untrusted-data and sensitive-content external flow detection
 - Human approval callback
 - Optional JSONL audit log
-- CLI demo and direct `check` command
+- Local attack simulator, CLI demo, and direct `check` command
 - Zero runtime dependencies except `tomli` on Python 3.10
 
 ## Current limitations
@@ -120,6 +128,10 @@ stopped before the entire structure was scanned.
 ## CLI
 
 ```bash
+taintgate attack
+
+taintgate attack --json
+
 taintgate demo
 
 taintgate check \
@@ -143,8 +155,8 @@ x BLOCK  risk=90/100  tool=execute_shell
 3. OpenAI Agents SDK adapter.
 4. LangChain/LangGraph middleware adapter.
 5. MCP proxy/adapter.
-6. Attack simulator with reproducible scenarios.
-7. Policy file format and per-tool capabilities.
+6. Expanded attack-suite scenarios and adapters.
+7. Additional policy controls and integrations.
 
 ## Design principle
 
@@ -163,7 +175,8 @@ ruff check .
 
 ## Status
 
-Early prototype. Do not treat this package as a complete security boundary yet.
+Early prototype. The local simulator is useful for demos and CI smoke tests,
+but it is not proof that TaintGate blocks every real-world attack.
 
 ## License
 
