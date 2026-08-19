@@ -27,6 +27,7 @@ from .models import (
     ApprovalResult,
     ArgumentSummary,
     AuditEvent,
+    CallAuthorization,
     CallContext,
     Decision,
     ExecutionState,
@@ -45,6 +46,13 @@ ApprovalHandler = Callable[[ApprovalRequest], object]
 _SUMMARY_MAX_DEPTH = 8
 _SUMMARY_MAX_NODES = 256
 _SAFE_PATH_KEY = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
+_LIFECYCLE_STATES = frozenset(
+    {
+        ExecutionState.EXECUTED,
+        ExecutionState.EXECUTION_FAILED,
+        ExecutionState.POST_EXECUTION_PROVENANCE_FAILED,
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -113,8 +121,8 @@ class Guard:
         context: CallContext | None = None,
         metadata: ToolMetadata | None = None,
     ) -> Decision:
-        action_context = self._authorize_sync(tool, args, context=context, metadata=metadata)
-        return action_context.decision
+        authorization = self.authorize_call(tool, args, context=context, metadata=metadata)
+        return authorization.decision
 
     async def authorize_async(
         self,
@@ -124,8 +132,47 @@ class Guard:
         context: CallContext | None = None,
         metadata: ToolMetadata | None = None,
     ) -> Decision:
+        authorization = await self.authorize_call_async(tool, args, context=context, metadata=metadata)
+        return authorization.decision
+
+    def authorize_call(
+        self,
+        tool: str,
+        args: dict[str, Any],
+        *,
+        context: CallContext | None = None,
+        metadata: ToolMetadata | None = None,
+    ) -> CallAuthorization:
+        action_context = self._authorize_sync(tool, args, context=context, metadata=metadata)
+        return _to_call_authorization(action_context)
+
+    async def authorize_call_async(
+        self,
+        tool: str,
+        args: dict[str, Any],
+        *,
+        context: CallContext | None = None,
+        metadata: ToolMetadata | None = None,
+    ) -> CallAuthorization:
         action_context = await self._authorize_async(tool, args, context=context, metadata=metadata)
-        return action_context.decision
+        return _to_call_authorization(action_context)
+
+    def record_execution_outcome(
+        self,
+        authorization: CallAuthorization,
+        execution_state: ExecutionState,
+        *,
+        error_type: str | None = None,
+    ) -> None:
+        if not isinstance(authorization, CallAuthorization):
+            raise TypeError("authorization must be a CallAuthorization")
+        if execution_state not in _LIFECYCLE_STATES:
+            allowed_states = ", ".join(state.value for state in sorted(_LIFECYCLE_STATES, key=lambda state: state.value))
+            raise ValueError(f"execution_state must be one of: {allowed_states}")
+        if error_type is not None and not isinstance(error_type, str):
+            raise TypeError("error_type must be a string or None")
+        action_context = _action_context_from_authorization(authorization)
+        self._write_audit_best_effort(action_context, execution_state, error_type=error_type)
 
     def protect(
         self,
@@ -144,7 +191,7 @@ class Guard:
                     bound = signature.bind(*args, **kwargs)
                     bound.apply_defaults()
                     raw = dict(bound.arguments)
-                    action_context = await self._authorize_async(
+                    authorization = await self.authorize_call_async(
                         tool_name,
                         raw,
                         metadata=metadata,
@@ -154,13 +201,13 @@ class Guard:
                     try:
                         result = await cast(Callable[P, Awaitable[R]], func)(*bound.args, **bound.kwargs)
                     except Exception as exc:
-                        self._write_audit_best_effort(
-                            action_context,
+                        self.record_execution_outcome(
+                            authorization,
                             ExecutionState.EXECUTION_FAILED,
                             error_type=type(exc).__name__,
                         )
                         raise
-                    self._write_audit_best_effort(action_context, ExecutionState.EXECUTED)
+                    self.record_execution_outcome(authorization, ExecutionState.EXECUTED)
                     return result
 
                 return cast(Callable[P, R], async_wrapped)
@@ -170,19 +217,19 @@ class Guard:
                 bound = signature.bind(*args, **kwargs)
                 bound.apply_defaults()
                 raw = dict(bound.arguments)
-                action_context = self._authorize_sync(tool_name, raw, metadata=metadata)
+                authorization = self.authorize_call(tool_name, raw, metadata=metadata)
                 for key, value in list(bound.arguments.items()):
                     bound.arguments[key] = _unwrap(value)
                 try:
                     result = func(*bound.args, **bound.kwargs)
                 except Exception as exc:
-                    self._write_audit_best_effort(
-                        action_context,
+                    self.record_execution_outcome(
+                        authorization,
                         ExecutionState.EXECUTION_FAILED,
                         error_type=type(exc).__name__,
                     )
                     raise
-                self._write_audit_best_effort(action_context, ExecutionState.EXECUTED)
+                self.record_execution_outcome(authorization, ExecutionState.EXECUTED)
                 return result
 
             return wrapped
@@ -504,6 +551,30 @@ class Guard:
                 RuntimeWarning,
                 stacklevel=3,
             )
+
+
+def _to_call_authorization(action_context: _ActionContext) -> CallAuthorization:
+    return CallAuthorization(
+        event_id=action_context.event_id,
+        tool=action_context.tool,
+        decision=action_context.decision,
+        metadata=action_context.metadata,
+        argument_summary=action_context.argument_summary,
+        provenance=action_context.provenance,
+        context=action_context.context,
+    )
+
+
+def _action_context_from_authorization(authorization: CallAuthorization) -> _ActionContext:
+    return _ActionContext(
+        event_id=authorization.event_id,
+        tool=authorization.tool,
+        decision=authorization.decision,
+        metadata=authorization.metadata,
+        argument_summary=authorization.argument_summary,
+        provenance=authorization.provenance,
+        context=authorization.context,
+    )
 
 
 def _unwrap(value: Any, memo: dict[int, Any] | None = None) -> Any:

@@ -6,6 +6,7 @@ from .exceptions import (
     BlockedAction,
     InvalidApprovalResult,
     PolicyConfigurationError,
+    PostExecutionProvenanceError,
     TaintGateError,
 )
 from .guard import Guard
@@ -16,6 +17,7 @@ from .models import (
     ApprovalResult,
     ArgumentSummary,
     AuditEvent,
+    CallAuthorization,
     CallContext,
     Decision,
     ExecutionState,
@@ -53,6 +55,7 @@ __all__ = [
     "AuditSink",
     "AuditSinkError",
     "BlockedAction",
+    "CallAuthorization",
     "CallContext",
     "Decision",
     "ExecutionState",
@@ -63,6 +66,7 @@ __all__ = [
     "JsonlAuditSink",
     "Policy",
     "PolicyConfigurationError",
+    "PostExecutionProvenanceError",
     "ProvenanceSummary",
     "TaintGateError",
     "TaintedString",

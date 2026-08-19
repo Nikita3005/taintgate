@@ -46,3 +46,16 @@ class AuditSinkError(TaintGateError):
             f"Audit sink failed while recording {event.execution_state.value} "
             f"for {event.tool!r} ({type(cause).__name__})"
         )
+
+
+class PostExecutionProvenanceError(TaintGateError):
+    def __init__(self, *, tool_id: str):
+        if not isinstance(tool_id, str) or not tool_id:
+            raise TypeError("tool_id must be a non-empty string")
+        self.tool_id = tool_id
+        self.remote_executed = True
+        self.retry_safe = False
+        super().__init__(
+            f"Post-execution provenance processing failed for {tool_id!r}. "
+            "The remote MCP tool may already have executed, so callers must not blindly retry."
+        )

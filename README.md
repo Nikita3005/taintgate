@@ -52,6 +52,12 @@ Optional LangChain/LangGraph integration:
 pip install "taintgate[langgraph]"
 ```
 
+Optional MCP integration:
+
+```bash
+pip install "taintgate[mcp]"
+```
+
 Protect a normal Python tool:
 
 ```python
@@ -119,6 +125,7 @@ configuration error instead of silently falling back to allow-all behavior.
 - Human approval callback
 - Optional JSONL audit log
 - Optional OpenAI Agents SDK custom function-tool input guardrail adapter
+- Optional MCP client adapter for guarded `ClientSession.call_tool(...)`
 - Local attack simulator, CLI demo, and direct `check` command
 - Zero runtime dependencies except `tomli` on Python 3.10
 
@@ -137,6 +144,11 @@ string is safe or unsafe.
 Security scans are resource bounded. Extremely deep or adversarial nested
 inputs may produce a `runtime.scan_limit` finding to signal that traversal
 stopped before the entire structure was scanned.
+
+The MCP adapter taints `CallToolResult` text, embedded text resources, and
+JSON-compatible `structuredContent` string values. It currently preserves
+`InputRequiredResult` unchanged, so input-required payloads are not claimed as
+provenance-protected in v0.1.
 
 ## CLI
 
@@ -250,15 +262,62 @@ This adapter protects tool execution only. It does not yet claim full
 LangGraph state/message provenance propagation, and serialization or derived
 strings may still lose provenance in v0.1.
 
+## MCP
+
+TaintGate v0.1 supports guarded MCP tool calls through a small wrapper around
+the public `mcp.ClientSession.call_tool(...)` API.
+
+Install the optional integration with:
+
+```bash
+pip install "taintgate[mcp]"
+```
+
+Use it like this:
+
+```python
+from taintgate import Guard, ToolMetadata
+from taintgate.mcp import TaintGateMCPClient
+
+guard = Guard()
+client = TaintGateMCPClient(
+    session,
+    guard,
+    server_name="filesystem",
+    metadata={
+        "write_file": ToolMetadata(side_effecting=True),
+        "send_email": ToolMetadata(
+            side_effecting=True,
+            external_destination=True,
+        ),
+    },
+)
+
+result = await client.call_tool("read_file", {"path": "README.md"})
+```
+
+This adapter protects calls routed through `TaintGateMCPClient`. It does not
+replace MCP transport authentication/authorization, and it does not
+automatically protect direct `ClientSession.call_tool(...)` calls made outside
+the wrapper.
+
+For `CallToolResult`, TaintGate marks:
+
+- `TextContent.text`
+- `EmbeddedResource.resource.text` when the resource is `TextResourceContents`
+- JSON-compatible `structuredContent` string values recursively
+
+Binary/audio/blob/resource-link content is preserved unchanged in v0.1.
+
 ## What comes next
 
 1. Intent/action consistency checks: compare the user's authorized goal with
    the proposed side effect.
-2. Output-side scanning: taint values returned by browser, search, retrieval,
-   and MCP tools automatically.
+2. Broader output-side provenance propagation beyond direct string values and
+   the current MCP adapter coverage.
 3. Broader OpenAI Agents SDK runtime coverage.
 4. Broader LangChain/LangGraph runtime coverage and provenance propagation.
-5. MCP proxy/adapter.
+5. Broader MCP transport/runtime coverage beyond guarded `ClientSession` calls.
 6. Expanded attack-suite scenarios and adapters.
 7. Additional policy controls and integrations.
 
