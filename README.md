@@ -164,9 +164,9 @@ use `taintgate attack --json`.
 
 | Integration | Install | Protected boundary |
 |-------------|---------|--------------------|
-| OpenAI Agents | `pip install "taintgate[openai]"` | Custom function-tool input guardrails |
-| LangChain / LangGraph | `pip install "taintgate[langgraph]"` | Tool middleware and direct `ToolNode` wrapping |
-| MCP | `pip install "taintgate[mcp]"` | Guarded `ClientSession.call_tool(...)` plus returned-text provenance |
+| OpenAI Agents | `python -m pip install "taintgate[openai] @ git+https://github.com/Nikita3005/taintgate.git@v0.1.0"` | Custom function-tool input guardrails |
+| LangChain / LangGraph | `python -m pip install "taintgate[langgraph] @ git+https://github.com/Nikita3005/taintgate.git@v0.1.0"` | Tool middleware and direct `ToolNode` wrapping |
+| MCP | `python -m pip install "taintgate[mcp] @ git+https://github.com/Nikita3005/taintgate.git@v0.1.0"` | Guarded `ClientSession.call_tool(...)` plus returned-text provenance |
 
 ### OpenAI Agents
 
@@ -208,16 +208,26 @@ unchanged in v0.1.
 
 ## Installation and Extras
 
+PyPI distribution is not currently provided. `v0.1.0` is distributed through
+GitHub Releases and the tagged GitHub source. Git must be available for
+`git+https` installation.
+
 Core install:
 
-- `pip install taintgate`
+- `python -m pip install "taintgate @ git+https://github.com/Nikita3005/taintgate.git@v0.1.0"`
 
 Optional extras:
 
-- `pip install "taintgate[openai]"`
-- `pip install "taintgate[langgraph]"`
-- `pip install "taintgate[mcp]"`
-- `pip install "taintgate[openai,langgraph,mcp]"`
+- `python -m pip install "taintgate[openai] @ git+https://github.com/Nikita3005/taintgate.git@v0.1.0"`
+- `python -m pip install "taintgate[langgraph] @ git+https://github.com/Nikita3005/taintgate.git@v0.1.0"`
+- `python -m pip install "taintgate[mcp] @ git+https://github.com/Nikita3005/taintgate.git@v0.1.0"`
+- `python -m pip install "taintgate[openai,langgraph,mcp] @ git+https://github.com/Nikita3005/taintgate.git@v0.1.0"`
+
+Alternatively, download the wheel from the `v0.1.0` GitHub Release and run:
+
+```bash
+python -m pip install taintgate-0.1.0-py3-none-any.whl
+```
 
 `import taintgate` does not require optional framework SDKs. The OpenAI
 Agents, LangChain/LangGraph, and MCP dependencies are isolated behind their
@@ -248,7 +258,7 @@ explicit non-goals.
 
 ## Project Status
 
-Release-candidate validation for `v0.1.0`:
+Release validation for `v0.1.0`:
 
 - Python `3.10` through `3.13`
 - `161` tests passing
