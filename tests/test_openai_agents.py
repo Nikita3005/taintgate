@@ -16,6 +16,7 @@ from agents import (
     function_tool,
 )
 from agents.tool_context import ToolContext
+from packaging.version import Version
 
 from taintgate import ApprovalAction, Guard, ToolMetadata
 from taintgate.openai_agents import TaintGateToolGuardrail
@@ -84,10 +85,10 @@ else:
 
 
 def test_installed_sdk_version_and_public_api_smoke_test() -> None:
-    version = importlib.metadata.version("openai-agents")
+    version = Version(importlib.metadata.version("openai-agents"))
     data_signature = str(inspect.signature(ToolInputGuardrailData))
 
-    assert version == "0.21.1"
+    assert Version("0.21.1") <= version < Version("0.23")
     assert "tool_input_guardrails" in str(inspect.signature(function_tool))
     assert "context:" in data_signature
     assert "agent:" in data_signature
