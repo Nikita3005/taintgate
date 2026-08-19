@@ -238,9 +238,7 @@ def test_argument_summary_is_bounded_and_cycle_safe() -> None:
     guard = Guard(policy=Policy(review_at=100, block_at=100), audit_sink=sink)
     cycle: list[object] = []
     cycle.append(cycle)
-    payload: object = "done"
-    for _ in range(12):
-        payload = {"next": [payload]}
+    payload = {"items": ["done"] * 250}
 
     @guard.protect(name="search_docs")
     def search_docs(data: object) -> str:

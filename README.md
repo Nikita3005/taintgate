@@ -232,6 +232,10 @@ TaintGate is a runtime enforcement layer, not a complete containment system.
 - Prompt-injection detection is heuristic and deterministic, not semantic proof.
 - Provenance can be lost through arbitrary string transformations, formatting,
   serialization, or framework behavior that does not preserve tainted values.
+- TaintGate v0.1 accepts supported structured argument trees; convert arbitrary
+  custom Python objects or dataclass instances to dict/list/scalar values
+  before protected execution, because unsupported or over-budget unvalidated
+  argument trees fail closed.
 - TaintGate is not an OS sandbox.
 - TaintGate is not a credential isolation system.
 - TaintGate does not replace framework or MCP authentication and authorization.

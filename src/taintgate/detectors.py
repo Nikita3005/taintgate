@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
+from enum import Enum
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
@@ -11,6 +12,8 @@ from .models import Finding, TaintedString, TaintedValue, ToolMetadata, Trust
 _MAX_SCAN_DEPTH = 8
 _MAX_SCAN_NODES = 1024
 _SCAN_LIMIT_SCORE = 60
+_ARGUMENT_VALIDATION_INCOMPLETE_SCORE = 100
+_UNSUPPORTED_VALUE_SCORE = 100
 _PROMPT_INJECTION_SCORE = 20
 _UNTRUSTED_PROMPT_INJECTION_SCORE = 55
 _SECRET_SCORE = 75
@@ -96,6 +99,7 @@ _ROOT_SENSITIVE_PATHS = frozenset(
     }
 )
 _SAFE_PATH_KEY = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
+_SAFE_TYPE_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
 
 
 @dataclass(frozen=True)
@@ -114,11 +118,30 @@ class _WalkState:
     limit_reached: bool = False
 
 
+class _ArgumentValidationStatus(Enum):
+    VALID = "valid"
+    UNSUPPORTED = "unsupported"
+    INCOMPLETE = "incomplete"
+
+
+@dataclass(frozen=True)
+class _ArgumentValidationResult:
+    status: _ArgumentValidationStatus
+    finding: Finding | None = None
+
+
 def collect_findings(
     tool: str,
     args: Mapping[str, Any],
     metadata: ToolMetadata | None = None,
 ) -> list[Finding]:
+    validation = _validate_argument_tree(args)
+    if validation.status is not _ArgumentValidationStatus.VALID:
+        finding = validation.finding
+        if finding is None:  # pragma: no cover - defensive consistency guard
+            raise RuntimeError("argument validation must provide a finding for non-valid results")
+        return [finding]
+
     entries, limit_reached = _scan_entries(args)
     effective_metadata = metadata or ToolMetadata()
 
@@ -372,6 +395,109 @@ def _scan_entries(
         entries=entries,
     )
     return entries, state.limit_reached
+
+
+def _validate_argument_tree(
+    value: Any,
+    *,
+    path: str = "$",
+    depth: int = 0,
+    state: _WalkState | None = None,
+) -> _ArgumentValidationResult:
+    if state is None:
+        state = _WalkState(visited_ids=set())
+    if state.nodes_seen >= _MAX_SCAN_NODES:
+        state.limit_reached = True
+        return _argument_validation_incomplete(path, reason="node budget")
+    if depth > _MAX_SCAN_DEPTH:
+        state.limit_reached = True
+        return _argument_validation_incomplete(path, reason="depth budget")
+    state.nodes_seen += 1
+
+    if value is None or isinstance(value, (bool, int, float, str, TaintedString)):
+        return _argument_validation_valid()
+
+    if isinstance(value, TaintedValue):
+        if _already_visited(value, state):
+            return _argument_validation_valid()
+        return _validate_argument_tree(
+            value.value,
+            path=path,
+            depth=depth + 1,
+            state=state,
+        )
+
+    if isinstance(value, dict):
+        if _already_visited(value, state):
+            return _argument_validation_valid()
+        for key, item in value.items():
+            result = _validate_argument_tree(
+                item,
+                path=_child_path(path, key),
+                depth=depth + 1,
+                state=state,
+            )
+            if result.status is not _ArgumentValidationStatus.VALID:
+                return result
+        return _argument_validation_valid()
+
+    if isinstance(value, (list, tuple)):
+        if _already_visited(value, state):
+            return _argument_validation_valid()
+        for index, item in enumerate(value):
+            result = _validate_argument_tree(
+                item,
+                path=f"{path}[{index}]",
+                depth=depth + 1,
+                state=state,
+            )
+            if result.status is not _ArgumentValidationStatus.VALID:
+                return result
+        return _argument_validation_valid()
+
+    if isinstance(value, (set, frozenset)):
+        if _already_visited(value, state):
+            return _argument_validation_valid()
+        for item in value:
+            result = _validate_argument_tree(
+                item,
+                path=f"{path}[<set-item>]",
+                depth=depth + 1,
+                state=state,
+            )
+            if result.status is not _ArgumentValidationStatus.VALID:
+                return result
+        return _argument_validation_valid()
+
+    return _argument_validation_unsupported(path, type_name=type(value).__name__)
+
+
+def _argument_validation_valid() -> _ArgumentValidationResult:
+    return _ArgumentValidationResult(_ArgumentValidationStatus.VALID)
+
+
+def _argument_validation_unsupported(path: str, *, type_name: str) -> _ArgumentValidationResult:
+    return _ArgumentValidationResult(
+        _ArgumentValidationStatus.UNSUPPORTED,
+        Finding(
+            "runtime.unsupported_value",
+            f"Unsupported argument value type {_safe_type_name(type_name)} at {path}",
+            _UNSUPPORTED_VALUE_SCORE,
+            path=path,
+        ),
+    )
+
+
+def _argument_validation_incomplete(path: str, *, reason: str) -> _ArgumentValidationResult:
+    return _ArgumentValidationResult(
+        _ArgumentValidationStatus.INCOMPLETE,
+        Finding(
+            "runtime.argument_validation_incomplete",
+            f"Argument validation could not complete within {reason} at {path}",
+            _ARGUMENT_VALIDATION_INCOMPLETE_SCORE,
+            path=path,
+        ),
+    )
 
 
 def _walk_value(
@@ -647,6 +773,12 @@ def _sanitize_url(origin: str) -> str:
 
     netloc = parts.netloc.rsplit("@", 1)[-1]
     return urlunsplit((parts.scheme, netloc, parts.path, "", ""))
+
+
+def _safe_type_name(type_name: str) -> str:
+    if _SAFE_TYPE_NAME.fullmatch(type_name):
+        return type_name
+    return "object"
 
 
 def _redact_sensitive_value(value: str, *, keep_start: int = 4, keep_end: int = 2) -> str:

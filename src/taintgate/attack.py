@@ -133,7 +133,7 @@ _SCENARIOS: tuple[AttackScenario, ...] = (
     AttackScenario(
         "scan_limit_reached",
         "Scan-limit scenario",
-        Action.REVIEW,
+        Action.BLOCK,
         "scan_limit_reached",
     ),
 )

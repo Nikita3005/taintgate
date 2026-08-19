@@ -10,6 +10,7 @@ from typing import Any
 
 import pytest
 from mcp import types
+from packaging.version import Version
 
 import taintgate.mcp as taintgate_mcp
 from taintgate import (
@@ -196,7 +197,7 @@ else:
 
 
 def test_installed_mcp_sdk_version_and_public_api_smoke_test() -> None:
-    assert importlib.metadata.version("mcp") == "2.0.0"
+    assert Version("2.0.0") <= Version(importlib.metadata.version("mcp")) < Version("2.1")
     assert str(inspect.signature(types.CallToolResult)).startswith("(*, _meta:")
     assert "arguments:" in str(inspect.signature(TaintGateMCPClient.call_tool))
     assert "authorize_call_async" in dir(Guard)

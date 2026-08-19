@@ -197,18 +197,20 @@ def test_cyclic_structure_does_not_crash_traversal() -> None:
     assert decision.action.value == "allow"
 
 
-def test_scan_limit_produces_stable_finding() -> None:
+def test_supported_tree_over_validation_budget_fails_closed() -> None:
     payload: object = "done"
     for _ in range(12):
         payload = {"next": [payload]}
 
     decision = Guard().check("search_docs", {"payload": payload})
 
-    findings = _find(decision, "runtime.scan_limit")
+    findings = _find(decision, "runtime.argument_validation_incomplete")
 
     assert findings
-    assert findings[0].path == "$"
-    assert decision.action.value == "review"
+    assert "depth budget" in findings[0].message
+    assert findings[0].path is not None and findings[0].path.startswith("$.payload")
+    assert decision.action.value == "block"
+    assert not _find(decision, "runtime.scan_limit")
 
 
 def test_deterministic_set_traversal_is_stable() -> None:

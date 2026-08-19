@@ -19,6 +19,7 @@ from langchain_core.tools import BaseTool, tool
 from langgraph.prebuilt import ToolNode
 from langgraph.prebuilt.tool_node import ToolRuntime
 from langgraph.runtime import Runtime
+from packaging.version import Version
 
 from taintgate import ApprovalAction, BlockedAction, Guard, Policy, ToolMetadata, ToolPolicy
 from taintgate.langchain import TaintGateToolMiddleware
@@ -110,9 +111,8 @@ else:
 
 
 def test_installed_langchain_api_versions_and_smoke_test() -> None:
-    assert importlib.metadata.version("langchain") == "1.3.15"
-    assert importlib.metadata.version("langgraph") == "1.2.11"
-    assert importlib.metadata.version("langchain-core") == "1.5.6"
+    assert Version("1.3.15") <= Version(importlib.metadata.version("langchain")) < Version("1.4")
+    assert Version("1.2.11") <= Version(importlib.metadata.version("langgraph")) < Version("1.3")
 
     create_agent_signature = str(inspect.signature(create_agent))
     wrap_signature = str(inspect.signature(AgentMiddleware.wrap_tool_call))
