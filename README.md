@@ -96,23 +96,28 @@ sections below describe the supported scope.
 ## Architecture
 
 ```mermaid
-flowchart LR
-    U[External and Untrusted Sources<br/>Web | Email | RAG | APIs | MCP]
-    A[Agent or Framework]
-    C[Protected Tool Call]
-    T[TaintGate Core<br/>Provenance | Detectors | Deterministic Policy]
-    E[Execute tool]
-    H[Human approval]
-    S[Stop]
-    M[MCP returned text and supported structured string fields<br/>become untrusted future input]
+flowchart TD
+    U["External and Untrusted Sources<br/>Web · Email · RAG · APIs · MCP"]
+    A["AI Agent or Framework"]
+    C["Protected Tool Call"]
+    T["TaintGate Core<br/>Provenance · Detectors · Deterministic Policy · Audit"]
+    H["Human Approval"]
+    E["Execute Tool"]
+    S["Stop"]
+    M["MCP returned text + supported structured strings<br/>marked UNTRUSTED"]
 
-    U --> A --> C --> T
+    U --> A
+    A --> C
+    C --> T
+
     T -->|ALLOW| E
     T -->|REVIEW| H
-    H -->|approved| E
-    H -->|rejected| S
+    H -->|Approved| E
+    H -->|Rejected| S
     T -->|BLOCK| S
-    E -. MCP execution result .-> M -. future input .-> A
+
+    E -->|MCP result| M
+    M -->|Future agent input| A
 ```
 
 ## Provenance and Policy Example
