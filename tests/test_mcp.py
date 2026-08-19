@@ -11,12 +11,14 @@ from typing import Any
 import pytest
 from mcp import types
 
+import taintgate.mcp as taintgate_mcp
 from taintgate import (
     ApprovalAction,
     ApprovalRequired,
     BlockedAction,
     Guard,
     Policy,
+    PostExecutionProvenanceError,
     TaintedString,
     ToolMetadata,
 )
@@ -24,6 +26,7 @@ from taintgate.mcp import TaintGateMCPClient
 
 _CANONICAL_TOOL = "mcp:filesystem/read_file"
 _FAKE_SECRET = "token=demo-secret"
+_SUPER_SECRET_MARKER = "SUPER_SECRET_MCP_PAYLOAD_123"
 
 
 class _FakeSession:
@@ -57,7 +60,79 @@ class _FakeSession:
                 "allow_claimed": allow_claimed,
             }
         )
+        if isinstance(self.result, Exception):
+            raise self.result
         return self.result
+
+
+class _MemoryAuditSink:
+    def __init__(self) -> None:
+        self.events: list[Any] = []
+
+    def write(self, event: Any) -> None:
+        self.events.append(event)
+
+
+class _RemoteMCPError(RuntimeError):
+    pass
+
+
+class _LeakyStructuredValue:
+    def __init__(self, secret: str) -> None:
+        self.secret = secret
+
+    def __repr__(self) -> str:
+        return f"_LeakyStructuredValue({self.secret})"
+
+
+def _states(sink: _MemoryAuditSink) -> list[str]:
+    return [event.execution_state.value for event in sink.events]
+
+
+def _too_deep_structured_content(secret: str) -> Any:
+    value: Any = secret
+    for _ in range(10):
+        value = {"child": value}
+    return value
+
+
+def _too_many_nodes_structured_content(secret: str) -> Any:
+    return [secret] * 512
+
+
+def _cyclic_structured_content(secret: str) -> Any:
+    cycle: list[Any] = [secret]
+    cycle.append(cycle)
+    return cycle
+
+
+def _unsupported_structured_content(secret: str) -> Any:
+    return {"payload": _LeakyStructuredValue(secret)}
+
+
+def _assert_deep_content_unmodified(value: Any) -> None:
+    current = value
+    while isinstance(current, dict):
+        current = current["child"]
+    assert current == _FAKE_SECRET
+    assert not isinstance(current, TaintedString)
+
+
+def _assert_node_budget_content_unmodified(value: Any) -> None:
+    assert value[0] == _FAKE_SECRET
+    assert value[-1] == _FAKE_SECRET
+    assert not isinstance(value[0], TaintedString)
+
+
+def _assert_cyclic_content_unmodified(value: Any) -> None:
+    assert value[0] == _FAKE_SECRET
+    assert not isinstance(value[0], TaintedString)
+    assert value[1] is value
+
+
+def _assert_unsupported_content_unmodified(value: Any) -> None:
+    assert isinstance(value["payload"], _LeakyStructuredValue)
+    assert value["payload"].secret == _FAKE_SECRET
 
 
 def test_core_import_remains_independent_of_mcp_sdk() -> None:
@@ -124,6 +199,8 @@ def test_installed_mcp_sdk_version_and_public_api_smoke_test() -> None:
     assert importlib.metadata.version("mcp") == "2.0.0"
     assert str(inspect.signature(types.CallToolResult)).startswith("(*, _meta:")
     assert "arguments:" in str(inspect.signature(TaintGateMCPClient.call_tool))
+    assert "authorize_call_async" in dir(Guard)
+    assert "record_execution_outcome" in dir(Guard)
     assert list(types.CallToolResult.model_fields.keys()) == [
         "meta",
         "content",
@@ -254,6 +331,20 @@ def test_review_with_explicit_approval_calls_underlying_session_once() -> None:
     assert isinstance(result.content[0].text, TaintedString)
 
 
+def test_allow_successful_call_records_executed_audit_state() -> None:
+    sink = _MemoryAuditSink()
+    original = types.CallToolResult(content=[types.TextContent(text="ok")])
+    session = _FakeSession(original)
+    client = TaintGateMCPClient(session, Guard(audit_sink=sink), server_name="filesystem")
+
+    result = asyncio.run(client.call_tool("read_file", {"path": "README.md"}))
+
+    assert len(session.calls) == 1
+    assert isinstance(result.content[0].text, TaintedString)
+    assert _states(sink) == ["allowed", "executed"]
+    assert len({event.event_id for event in sink.events}) == 1
+
+
 def test_block_does_not_call_underlying_session() -> None:
     session = _FakeSession(types.CallToolResult(content=[types.TextContent(text="blocked")]))
     guard = Guard()
@@ -292,6 +383,19 @@ def test_error_result_preserves_is_error_and_taints_error_text() -> None:
     assert isinstance(result.structured_content["message"], TaintedString)
 
 
+def test_underlying_mcp_exception_is_preserved_and_records_execution_failed() -> None:
+    sink = _MemoryAuditSink()
+    session = _FakeSession(_RemoteMCPError("remote boom"))
+    client = TaintGateMCPClient(session, Guard(audit_sink=sink), server_name="filesystem")
+
+    with pytest.raises(_RemoteMCPError, match="remote boom"):
+        asyncio.run(client.call_tool("read_file", {"path": "README.md"}))
+
+    assert len(session.calls) == 1
+    assert _states(sink) == ["allowed", "execution_failed"]
+    assert len({event.event_id for event in sink.events}) == 1
+
+
 def test_input_required_result_is_preserved_unchanged() -> None:
     original = types.InputRequiredResult(requestState="state-1")
     session = _FakeSession(original)
@@ -323,6 +427,94 @@ def test_blob_resources_and_resource_links_are_preserved_while_text_resource_is_
     assert isinstance(result.content[0].resource.text, TaintedString)
     assert result.content[1] is original.content[1]
     assert result.content[2] is original.content[2]
+
+
+@pytest.mark.parametrize(
+    ("structured_factory", "assert_unmodified"),
+    [
+        (_too_deep_structured_content, _assert_deep_content_unmodified),
+        (_too_many_nodes_structured_content, _assert_node_budget_content_unmodified),
+        (_cyclic_structured_content, _assert_cyclic_content_unmodified),
+        (_unsupported_structured_content, _assert_unsupported_content_unmodified),
+    ],
+    ids=["max-depth", "max-nodes", "cycle", "unsupported"],
+)
+def test_post_execution_provenance_failures_raise_dedicated_error_exactly_once(
+    structured_factory: Any,
+    assert_unmodified: Any,
+) -> None:
+    original = types.CallToolResult(
+        content=[types.TextContent(text="body")],
+        structuredContent=structured_factory(_FAKE_SECRET),
+    )
+    session = _FakeSession(original)
+    client = TaintGateMCPClient(session, Guard(), server_name="filesystem")
+
+    with pytest.raises(PostExecutionProvenanceError) as exc_info:
+        asyncio.run(client.call_tool("read_file", {"path": "README.md"}))
+
+    exc = exc_info.value
+    assert len(session.calls) == 1
+    assert exc.remote_executed is True
+    assert exc.retry_safe is False
+    assert exc.tool_id == _CANONICAL_TOOL
+    assert "may already have executed" in str(exc)
+    assert "must not blindly retry" in str(exc)
+    assert _FAKE_SECRET not in str(exc)
+    assert original.content[0].text == "body"
+    assert not isinstance(original.content[0].text, TaintedString)
+    assert_unmodified(original.structured_content)
+
+
+def test_post_execution_provenance_failure_records_distinct_audit_state_with_same_event_id() -> None:
+    sink = _MemoryAuditSink()
+    original = types.CallToolResult(
+        content=[types.TextContent(text="body")],
+        structuredContent=_too_many_nodes_structured_content(_FAKE_SECRET),
+    )
+    session = _FakeSession(original)
+    client = TaintGateMCPClient(session, Guard(audit_sink=sink), server_name="filesystem")
+
+    with pytest.raises(PostExecutionProvenanceError):
+        asyncio.run(client.call_tool("read_file", {"path": "README.md"}))
+
+    assert len(session.calls) == 1
+    assert _states(sink) == ["allowed", "post_execution_provenance_failed"]
+    assert len({event.event_id for event in sink.events}) == 1
+    assert "execution_failed" not in _states(sink)
+
+
+def test_post_execution_provenance_error_clears_sensitive_exception_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original = types.CallToolResult(
+        content=[types.TextContent(text="body")],
+        structuredContent={"title": "Guide"},
+    )
+    session = _FakeSession(original)
+    client = TaintGateMCPClient(session, Guard(), server_name="filesystem")
+
+    def _raise_sensitive_provenance_error(*args: Any, **kwargs: Any) -> Any:
+        raise ValueError(_SUPER_SECRET_MARKER)
+
+    monkeypatch.setattr(taintgate_mcp, "_taint_result", _raise_sensitive_provenance_error)
+
+    result: object | None = None
+    with pytest.raises(PostExecutionProvenanceError) as exc_info:
+        result = asyncio.run(client.call_tool("read_file", {"path": "README.md"}))
+
+    exc = exc_info.value
+    assert result is None
+    assert len(session.calls) == 1
+    assert exc.remote_executed is True
+    assert exc.retry_safe is False
+    assert exc.tool_id == _CANONICAL_TOOL
+    assert _SUPER_SECRET_MARKER not in str(exc)
+    assert _SUPER_SECRET_MARKER not in repr(exc)
+    assert exc.__context__ is None
+    assert exc.__cause__ is None
+    assert original.content[0].text == "body"
+    assert not isinstance(original.content[0].text, TaintedString)
 
 
 def test_unsafe_server_name_is_rejected() -> None:

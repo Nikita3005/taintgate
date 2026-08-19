@@ -12,8 +12,9 @@ except ImportError as exc:  # pragma: no cover - exercised in subprocess test
         'taintgate.mcp requires the MCP SDK. Install it with: pip install "taintgate[mcp]"'
     ) from exc
 
+from .exceptions import PostExecutionProvenanceError
 from .guard import Guard
-from .models import TaintedString, ToolMetadata, Trust
+from .models import ExecutionState, TaintedString, ToolMetadata, Trust
 
 _SAFE_IDENTIFIER = re.compile(r"[A-Za-z0-9_.-]+\Z")
 _STRUCTURED_MAX_DEPTH = 8
@@ -67,24 +68,48 @@ class TaintGateMCPClient:
         canonical_tool = _canonical_mcp_identity(self._server_name, tool_name)
         call_arguments, guard_arguments = _normalize_arguments(arguments)
 
-        await self._guard.authorize_async(
+        authorization = await self._guard.authorize_call_async(
             canonical_tool,
             guard_arguments,
             metadata=self._metadata.get(tool_name),
         )
 
-        result = await self._session.call_tool(
-            tool_name,
-            call_arguments,
-            read_timeout_seconds,
-            progress_callback,
-            input_responses=input_responses,
-            request_state=request_state,
-            meta=meta,
-            allow_input_required=allow_input_required,
-            allow_claimed=allow_claimed,
-        )
-        return _taint_result(result, origin=canonical_tool)
+        try:
+            result = await self._session.call_tool(
+                tool_name,
+                call_arguments,
+                read_timeout_seconds,
+                progress_callback,
+                input_responses=input_responses,
+                request_state=request_state,
+                meta=meta,
+                allow_input_required=allow_input_required,
+                allow_claimed=allow_claimed,
+            )
+        except Exception as exc:
+            self._guard.record_execution_outcome(
+                authorization,
+                ExecutionState.EXECUTION_FAILED,
+                error_type=type(exc).__name__,
+            )
+            raise
+
+        provenance_error: PostExecutionProvenanceError | None = None
+        try:
+            tainted_result = _taint_result(result, origin=canonical_tool)
+        except Exception as exc:  # noqa: BLE001
+            self._guard.record_execution_outcome(
+                authorization,
+                ExecutionState.POST_EXECUTION_PROVENANCE_FAILED,
+                error_type=type(exc).__name__,
+            )
+            provenance_error = PostExecutionProvenanceError(tool_id=canonical_tool)
+
+        if provenance_error is not None:
+            raise provenance_error
+
+        self._guard.record_execution_outcome(authorization, ExecutionState.EXECUTED)
+        return tainted_result
 
 
 def _normalize_metadata(metadata: Mapping[str, ToolMetadata] | None) -> dict[str, ToolMetadata]:

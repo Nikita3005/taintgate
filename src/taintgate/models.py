@@ -30,6 +30,7 @@ class ExecutionState(str, Enum):
     APPROVAL_FAILED = "approval_failed"
     EXECUTED = "executed"
     EXECUTION_FAILED = "execution_failed"
+    POST_EXECUTION_PROVENANCE_FAILED = "post_execution_provenance_failed"
 
 
 class Trust(str, Enum):
@@ -195,6 +196,25 @@ class ApprovalRequest:
     @property
     def matched_policies(self) -> tuple[str, ...]:
         return self.decision.matched_policies
+
+
+@dataclass(frozen=True)
+class CallAuthorization:
+    event_id: str
+    tool: str
+    decision: Decision
+    metadata: ToolMetadata = field(default_factory=ToolMetadata)
+    argument_summary: tuple[ArgumentSummary, ...] = field(default_factory=tuple)
+    provenance: tuple[ProvenanceSummary, ...] = field(default_factory=tuple)
+    context: CallContext | None = None
+
+    @property
+    def action(self) -> Action:
+        return self.decision.action
+
+    @property
+    def risk_score(self) -> int:
+        return self.decision.risk_score
 
 
 @dataclass(frozen=True)
